@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import sys
 import tkinter as tk
 import traceback
 import webbrowser
@@ -15,6 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from budget_generator.currency import CURRENCIES, DEFAULT_CURRENCY, symbol_for
 from budget_generator.excel_writer import save_workbook
 from budget_generator.layout import DEFAULT_EXPENSES, DEFAULT_INCOME
+from budget_generator import session_store
 
 APP_TITLE = "Budget Builder"
 
@@ -52,10 +54,11 @@ PIE_COLORS = [
 class RowEditor(ttk.Frame):
     """A dynamic list of labeled entry rows with add/remove buttons."""
 
-    def __init__(self, parent, columns: list[str], theme: dict):
+    def __init__(self, parent, columns: list[str], theme: dict, on_change=None):
         super().__init__(parent)
         self.columns = columns
         self.theme = theme
+        self.on_change = on_change
         self.entry_rows: list[list[tk.Entry]] = []
 
         header = ttk.Frame(self)
@@ -88,6 +91,8 @@ class RowEditor(ttk.Frame):
             entry.grid(row=row_index, column=col_index, padx=2, pady=2)
             if values:
                 entry.insert(0, str(values[col_index]))
+            if self.on_change:
+                entry.bind("<KeyRelease>", self.on_change)
             entries.append(entry)
 
         def remove():
@@ -95,10 +100,22 @@ class RowEditor(ttk.Frame):
                 e.destroy()
             remove_btn.destroy()
             self.entry_rows.remove(entries)
+            if self.on_change:
+                self.on_change()
 
         remove_btn = ttk.Button(self.rows_frame, text="x", width=2, command=remove)
         remove_btn.grid(row=row_index, column=len(self.columns), padx=2)
         self.entry_rows.append(entries)
+        if self.on_change:
+            self.on_change()
+
+    def clear(self):
+        for entries in list(self.entry_rows):
+            for e in entries:
+                e.destroy()
+        self.entry_rows.clear()
+        for child in self.rows_frame.winfo_children():
+            child.destroy()
 
     def get_values(self) -> list[tuple]:
         rows = []
@@ -128,9 +145,11 @@ class BudgetBuilderApp(ttk.Frame):
         self.theme_name = "dark"
         self.style = ttk.Style(master)
         self.style.theme_use("clam")
+        self._autosave_job = None
         self.pack(fill="both", expand=True)
         self._build_ui()
         self.apply_theme(self.theme_name)
+        self._load_last_session()
 
     def _build_ui(self):
         top = ttk.Frame(self)
@@ -145,18 +164,32 @@ class BudgetBuilderApp(ttk.Frame):
             top, textvariable=self.currency_var, values=sorted(CURRENCIES), width=5, state="readonly"
         )
         self.currency_combo.pack(side="left", padx=6)
-        self.currency_combo.bind("<<ComboboxSelected>>", lambda _e: self.refresh_chart())
+        self.currency_combo.bind("<<ComboboxSelected>>", lambda _e: (self.refresh_chart(), self.schedule_autosave()))
         self.theme_button = ttk.Button(top, text="☀ Light mode", command=self.toggle_theme)
         self.theme_button.pack(side="right")
 
+        saved_row = ttk.Frame(self)
+        saved_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(saved_row, text="Saved months:").pack(side="left")
+        self.saved_months_var = tk.StringVar()
+        self.saved_months_combo = ttk.Combobox(
+            saved_row, textvariable=self.saved_months_var, values=session_store.list_months(),
+            width=20, state="readonly",
+        )
+        self.saved_months_combo.pack(side="left", padx=6)
+        ttk.Button(saved_row, text="Load", command=self.load_selected_month).pack(side="left", padx=2)
+        ttk.Button(saved_row, text="🗑 Delete", command=self.delete_selected_month).pack(side="left", padx=2)
+
         ttk.Label(self, text="Income", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.income_editor = RowEditor(self, ["Source", "Amount"], THEMES[self.theme_name])
+        self.income_editor = RowEditor(self, ["Source", "Amount"], THEMES[self.theme_name], on_change=self.schedule_autosave)
         self.income_editor.pack(fill="x", pady=(0, 10))
         for name, amount in DEFAULT_INCOME:
             self.income_editor.add_row((name, amount))
 
         ttk.Label(self, text="Expenses", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.expense_editor = RowEditor(self, ["Category", "Budgeted", "Actual"], THEMES[self.theme_name])
+        self.expense_editor = RowEditor(
+            self, ["Category", "Budgeted", "Actual"], THEMES[self.theme_name], on_change=self.schedule_autosave
+        )
         self.expense_editor.pack(fill="x", pady=(0, 10))
         for name, budgeted, actual in DEFAULT_EXPENSES:
             self.expense_editor.add_row((name, budgeted, actual))
@@ -179,6 +212,7 @@ class BudgetBuilderApp(ttk.Frame):
 
         self.status = ttk.Label(self, text="")
         self.status.pack(anchor="w")
+        self.month_entry.bind("<KeyRelease>", self.schedule_autosave)
         self.refresh_chart()
 
     def toggle_theme(self):
@@ -228,6 +262,63 @@ class BudgetBuilderApp(ttk.Frame):
         self.chart_canvas.configure(bg=t["bg"])
         self.refresh_chart()
 
+    def schedule_autosave(self, _event=None):
+        if self._autosave_job is not None:
+            self.after_cancel(self._autosave_job)
+        self._autosave_job = self.after(800, self._do_autosave)
+
+    def _do_autosave(self):
+        self._autosave_job = None
+        month_label, incomes, expenses = self._collect_data()
+        if not month_label:
+            return
+        session_store.save_session(month_label, self.currency_var.get(), incomes, expenses)
+        self._refresh_saved_months(keep_selection=month_label)
+
+    def _refresh_saved_months(self, keep_selection: str | None = None):
+        months = session_store.list_months()
+        self.saved_months_combo.configure(values=months)
+        if keep_selection in months:
+            self.saved_months_var.set(keep_selection)
+
+    def _load_last_session(self):
+        self._refresh_saved_months()
+        latest = session_store.latest_month()
+        if latest:
+            self.load_month_data(latest)
+
+    def load_month_data(self, month: str):
+        data = session_store.load_session(month)
+        if not data:
+            return
+        self.month_entry.delete(0, tk.END)
+        self.month_entry.insert(0, month)
+        if data.get("currency") in CURRENCIES:
+            self.currency_var.set(data["currency"])
+        self.income_editor.clear()
+        for row in data.get("incomes", []):
+            self.income_editor.add_row(tuple(row))
+        self.expense_editor.clear()
+        for row in data.get("expenses", []):
+            self.expense_editor.add_row(tuple(row))
+        self.saved_months_var.set(month)
+        self.refresh_chart()
+        self.status.config(text=f"Loaded saved session: {month}")
+
+    def load_selected_month(self):
+        month = self.saved_months_var.get()
+        if month:
+            self.load_month_data(month)
+
+    def delete_selected_month(self):
+        month = self.saved_months_var.get()
+        if not month:
+            return
+        if messagebox.askyesno(APP_TITLE, f"Delete saved session for '{month}'?"):
+            session_store.delete_session(month)
+            self.saved_months_var.set("")
+            self._refresh_saved_months()
+            self.status.config(text=f"Deleted saved session: {month}")
 
     def _collect_data(self):
         month_label = self.month_entry.get().strip() or datetime.date.today().strftime("%B %Y")
@@ -289,6 +380,8 @@ class BudgetBuilderApp(ttk.Frame):
             return
         try:
             save_workbook(path, month_label, incomes, expenses, self.currency_var.get())
+            session_store.save_session(month_label, self.currency_var.get(), incomes, expenses)
+            self._refresh_saved_months(keep_selection=month_label)
             self.status.config(text=f"Saved: {path}")
             messagebox.showinfo(APP_TITLE, f"Excel budget saved to:\n{path}")
         except Exception as exc:  # surfaced to the user instead of crashing the GUI
@@ -297,6 +390,8 @@ class BudgetBuilderApp(ttk.Frame):
 
     def export_google_sheets(self):
         month_label, incomes, expenses = self._collect_data()
+        session_store.save_session(month_label, self.currency_var.get(), incomes, expenses)
+        self._refresh_saved_months(keep_selection=month_label)
         try:
             from budget_generator.sheets_writer import create_budget_sheet
         except ImportError as exc:
@@ -339,6 +434,14 @@ def _to_float(value: str) -> float:
 def main():
     root = tk.Tk()
     root.geometry("620x900")
+    # PyInstaller onefile builds extract bundled data to sys._MEIPASS at runtime.
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    icon_path = os.path.join(base_dir, "assets", "icon.ico")
+    if os.path.exists(icon_path):
+        try:
+            root.iconbitmap(icon_path)
+        except tk.TclError:
+            pass  # icon format unsupported on this platform (e.g. non-Windows)
     BudgetBuilderApp(root)
     root.mainloop()
 

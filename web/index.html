@@ -4,11 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Budget Builder</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="theme-dark">
   <div class="app">
     <header class="topbar">
+      <img src="logo.png" alt="Budget Builder logo" class="app-logo">
       <div class="field">
         <label for="month">Month / Label</label>
         <input id="month" type="text" value="">
@@ -19,6 +21,15 @@
       </div>
       <button id="theme-toggle" class="btn ghost">☀ Light mode</button>
     </header>
+
+    <div class="field saved-row">
+      <label for="saved-months">Saved months</label>
+      <div class="saved-controls">
+        <select id="saved-months"><option value="">— none saved —</option></select>
+        <button id="load-month" class="btn">Load</button>
+        <button id="delete-month" class="btn remove">🗑 Delete</button>
+      </div>
+    </div>
 
     <section>
       <h2>Income</h2>

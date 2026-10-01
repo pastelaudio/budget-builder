@@ -49,6 +49,33 @@ h2 {
   flex-wrap: wrap;
 }
 
+.app-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  align-self: center;
+}
+
+.saved-row {
+  margin: 10px 0;
+}
+
+.saved-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.saved-controls select {
+  flex: 1;
+  background: var(--entry-bg);
+  color: var(--entry-fg);
+  border: 1px solid var(--section-bg);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+
 .field {
   display: flex;
   flex-direction: column;

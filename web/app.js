@@ -31,6 +31,66 @@ const PIE_COLORS = [
   "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac",
 ];
 
+const SESSION_KEY = "budgetBuilderSessions";
+let autosaveTimer = null;
+
+function loadAllSessions() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function listSavedMonths() {
+  const data = loadAllSessions();
+  return Object.keys(data).sort((a, b) => (data[b].savedAt || "").localeCompare(data[a].savedAt || ""));
+}
+
+function saveSession(month, currency, incomes, expenses) {
+  if (!month) return;
+  const data = loadAllSessions();
+  data[month] = { currency, incomes, expenses, savedAt: new Date().toISOString() };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+  refreshSavedMonthsSelect(month);
+}
+
+function loadSession(month) {
+  return loadAllSessions()[month] || null;
+}
+
+function deleteSession(month) {
+  const data = loadAllSessions();
+  delete data[month];
+  localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+}
+
+function refreshSavedMonthsSelect(selectMonth) {
+  const select = $("saved-months");
+  const months = listSavedMonths();
+  select.innerHTML = months.length
+    ? months.map((m) => `<option value="${m}">${m}</option>`).join("")
+    : `<option value="">— none saved —</option>`;
+  if (selectMonth && months.includes(selectMonth)) select.value = selectMonth;
+}
+
+function scheduleAutosave() {
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    const payload = buildPayload();
+    saveSession(payload.month, payload.currency, payload.incomes, payload.expenses);
+  }, 800);
+}
+
+function applySessionToForm(data) {
+  $("income-rows").innerHTML = "";
+  $("expense-rows").innerHTML = "";
+  (data.incomes || []).forEach((r) => addRow($("income-rows"), "income", [r.name, r.amount]));
+  (data.expenses || []).forEach((r) => addRow($("expense-rows"), "expense", [r.name, r.budgeted, r.actual]));
+  if (data.currency) $("currency").value = data.currency;
+  refreshAll();
+}
+
 const $ = (id) => document.getElementById(id);
 const toFloat = (v) => {
   const n = parseFloat(String(v).replace(/,/g, "").replace(/[^0-9.-]/g, ""));
@@ -56,8 +116,12 @@ function addRow(container, kind, values) {
   row.querySelector(".remove").addEventListener("click", () => {
     row.remove();
     refreshAll();
+    scheduleAutosave();
   });
-  row.querySelectorAll("input").forEach((el) => el.addEventListener("input", refreshAll));
+  row.querySelectorAll("input").forEach((el) => el.addEventListener("input", () => {
+    refreshAll();
+    scheduleAutosave();
+  }));
   container.appendChild(row);
 }
 
@@ -169,6 +233,7 @@ function setStatus(text, isError) {
 
 async function exportExcel() {
   const payload = buildPayload();
+  saveSession(payload.month, payload.currency, payload.incomes, payload.expenses);
   setStatus("Generating Excel workbook...");
   try {
     const res = await fetch(`${API_BASE_URL}/export/excel`, {
@@ -194,6 +259,7 @@ async function exportExcel() {
 
 async function exportSheets() {
   const payload = buildPayload();
+  saveSession(payload.month, payload.currency, payload.incomes, payload.expenses);
   setStatus("Creating Google Sheet...");
   try {
     const res = await fetch(`${API_BASE_URL}/export/sheets`, {
@@ -221,6 +287,7 @@ function buildPayload() {
 
 function init() {
   $("month").value = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  $("month").addEventListener("input", scheduleAutosave);
 
   const currencySelect = $("currency");
   Object.keys(CURRENCIES).sort().forEach((code) => {
@@ -230,21 +297,52 @@ function init() {
     if (code === DEFAULT_CURRENCY) opt.selected = true;
     currencySelect.appendChild(opt);
   });
-  currencySelect.addEventListener("change", refreshAll);
+  currencySelect.addEventListener("change", () => {
+    refreshAll();
+    scheduleAutosave();
+  });
 
-  DEFAULT_INCOME.forEach((row) => addRow($("income-rows"), "income", row));
-  DEFAULT_EXPENSES.forEach((row) => addRow($("expense-rows"), "expense", row));
+  refreshSavedMonthsSelect();
+  const savedMonths = listSavedMonths();
+  if (savedMonths.length) {
+    applySessionToForm(loadSession(savedMonths[0]));
+    $("month").value = savedMonths[0];
+    refreshSavedMonthsSelect(savedMonths[0]);
+  } else {
+    DEFAULT_INCOME.forEach((row) => addRow($("income-rows"), "income", row));
+    DEFAULT_EXPENSES.forEach((row) => addRow($("expense-rows"), "expense", row));
+  }
 
   document.querySelectorAll(".add-row").forEach((btn) => {
     btn.addEventListener("click", () => {
       addRow($(btn.dataset.target), btn.dataset.kind);
       refreshAll();
+      scheduleAutosave();
     });
   });
 
   $("export-excel").addEventListener("click", exportExcel);
   $("export-sheets").addEventListener("click", exportSheets);
   $("refresh-chart").addEventListener("click", refreshAll);
+
+  $("load-month").addEventListener("click", () => {
+    const month = $("saved-months").value;
+    if (!month) return;
+    const data = loadSession(month);
+    if (!data) return;
+    $("month").value = month;
+    applySessionToForm(data);
+    setStatus(`Loaded saved session: ${month}`);
+  });
+
+  $("delete-month").addEventListener("click", () => {
+    const month = $("saved-months").value;
+    if (!month) return;
+    if (!confirm(`Delete saved session for '${month}'?`)) return;
+    deleteSession(month);
+    refreshSavedMonthsSelect();
+    setStatus(`Deleted saved session: ${month}`);
+  });
 
   $("theme-toggle").addEventListener("click", () => {
     const isDark = document.body.classList.toggle("theme-light") === false;
