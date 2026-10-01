@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Budget Builder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-dark">
+  <div class="app">
+    <header class="topbar">
+      <div class="field">
+        <label for="month">Month / Label</label>
+        <input id="month" type="text" value="">
+      </div>
+      <div class="field">
+        <label for="currency">Currency</label>
+        <select id="currency"></select>
+      </div>
+      <button id="theme-toggle" class="btn ghost">☀ Light mode</button>
+    </header>
+
+    <section>
+      <h2>Income</h2>
+      <div id="income-rows" class="rows" data-kind="income"></div>
+      <button class="btn add-row" data-target="income-rows" data-kind="income">+ Add row</button>
+    </section>
+
+    <section>
+      <h2>Expenses</h2>
+      <div id="expense-header" class="row header">
+        <span>Category</span><span>Budgeted</span><span>Actual</span><span>Difference</span><span></span>
+      </div>
+      <div id="expense-rows" class="rows" data-kind="expense"></div>
+      <button class="btn add-row" data-target="expense-rows" data-kind="expense">+ Add row</button>
+    </section>
+
+    <section class="summary">
+      <h2>Summary</h2>
+      <div class="summary-grid">
+        <div><span>Total Income</span><strong id="sum-income">0.00</strong></div>
+        <div><span>Total Expenses</span><strong id="sum-expenses">0.00</strong></div>
+        <div><span>Remaining Balance</span><strong id="sum-remaining">0.00</strong></div>
+        <div><span>Savings Rate</span><strong id="sum-rate">0.0%</strong></div>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button id="export-excel" class="btn primary">Export to Excel (.xlsx)</button>
+      <button id="export-sheets" class="btn primary">Export to Google Sheets</button>
+      <button id="refresh-chart" class="btn">📊 Refresh Chart</button>
+    </section>
+
+    <section>
+      <h2>Expense Breakdown</h2>
+      <div class="chart-area">
+        <canvas id="pie-canvas" width="220" height="220"></canvas>
+        <div id="legend"></div>
+      </div>
+    </section>
+
+    <p id="status" class="status"></p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

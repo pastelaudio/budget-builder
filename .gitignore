@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+*.spec
+credentials.json
+token.json
+*.xlsx
+*.log
