@@ -4,7 +4,7 @@ const API_BASE_URL = "";
 
 const CURRENCIES = {
   USD: "$", EUR: "€", GBP: "£", CAD: "$", AUD: "$",
-  JPY: "¥", INR: "₹", CHF: "CHF", MXN: "$", BRL: "R$",
+  JPY: "¥", INR: "₹", CHF: "CHF", MXN: "$", BRL: "R$", PHP: "₱",
 };
 const DEFAULT_CURRENCY = "USD";
 

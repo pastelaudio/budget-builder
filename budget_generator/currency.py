@@ -12,6 +12,7 @@ CURRENCIES: dict[str, str] = {
     "CHF": "CHF",
     "MXN": "$",
     "BRL": "R$",
+    "PHP": "₱",
 }
 
 DEFAULT_CURRENCY = "USD"
